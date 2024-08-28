@@ -11,6 +11,10 @@ whatsapp/*.pdf
 whatsapp/*.docx
 whatsapp/*.xlsx
 whatsapp/*.txt
+*.mov
+*.doc
+
+
 
 # Ignore whatsapp-web.js cache files
 .wwebjs_cache/
