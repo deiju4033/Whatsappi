@@ -1,4 +1,3 @@
-// models/model.message.js
 import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
 
@@ -26,6 +25,10 @@ const Message = sequelize.define("Message", {
   },
   content: {
     type: DataTypes.TEXT,
+  },
+  mediaType: {
+    type: DataTypes.ENUM('none', 'image', 'video', 'document'),
+    defaultValue: 'none',
   },
   mediaURL: {
     type: DataTypes.STRING,

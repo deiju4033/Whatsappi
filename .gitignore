@@ -1,2 +1,16 @@
 node_modules
 .env
+.wwebjs_cache/
+# Ignore whatsapp directory files
+whatsapp/*.mp4
+whatsapp/*.jpg
+whatsapp/*.png
+whatsapp/*.jpeg
+whatsapp/*.gif
+whatsapp/*.pdf
+whatsapp/*.docx
+whatsapp/*.xlsx
+whatsapp/*.txt
+
+# Ignore whatsapp-web.js cache files
+.wwebjs_cache/

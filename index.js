@@ -20,10 +20,9 @@ app.use(
   })
 );
 
-// Middleware
+
 app.use(express.json());
 
-// Routes
 app.get("/", (req, res) => {
   res.send("Hello World");
 });
@@ -34,9 +33,6 @@ app.use("/api/contacts", contactRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/company-users", companyUserRoutes);
-
-
-
 
 // Server setup
 const PORT = process.env.PORT || 8003;

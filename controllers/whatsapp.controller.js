@@ -1,24 +1,44 @@
 // controllers/whatsapp.controller.js
-import { Client } from "whatsapp-web.js";
+import pkg from "whatsapp-web.js";
+const { Client, MessageMedia } = pkg;
 import qrcode from "qrcode";
 import { parsePhoneNumber } from 'libphonenumber-js';
 import WhatsAppSession from "../models/model.whatsappSession.js";
 import CompanyUser from "../models/model.companyUser.js";
+import Message from "../models/model.message.js";
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const clients = {};
 const qrCodes = {};
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = './whatsapp';
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir);
+    }
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage: storage });
 
 const formatPhoneNumber = (number, defaultCountry = 'IN') => {
   try {
     const phoneNumber = parsePhoneNumber(number, defaultCountry);
     if (phoneNumber.isValid()) {
-      return phoneNumber.format('E.164').slice(1); 
+      return phoneNumber.format('E.164').slice(1);
     } else {
       throw new Error('Invalid phone number');
     }
   } catch (error) {
     console.error('Error formatting phone number:', error);
-    return number; 
+    return number;
   }
 };
 
@@ -106,7 +126,7 @@ export const checkStatus = async (req, res) => {
         puppeteer: { headless: true },
         session: session.sessionData
       });
-      
+
       clients[userId].on("ready", () => {
         console.log(`WhatsApp client for user ${userId} is ready`);
         clients[userId].isReady = true;
@@ -130,14 +150,16 @@ export const checkStatus = async (req, res) => {
 
 export const sendMessageToAll = async (req, res) => {
   const userId = req.user.id;
-  const { message } = req.body;
+  const { messageType, content } = req.body;
+  const file = req.file;
 
-  console.log(`Attempting to send message to all users for user ${userId}`);
-  console.log('Message content:', message);
+  console.log(`Attempting to send ${messageType} message to all users for user ${userId}`);
+  console.log('Message content:', content);
+  console.log('File:', file);
 
-  if (!clients[userId]) {
-    console.log(`WhatsApp client for user ${userId} does not exist`);
-    return res.status(400).send({ error: "WhatsApp is not initialized" });
+  if (!clients[userId] || !clients[userId].isReady) {
+    console.log(`WhatsApp client for user ${userId} is not ready`);
+    return res.status(400).send({ error: "WhatsApp is not initialized or not ready" });
   }
 
   try {
@@ -150,19 +172,69 @@ export const sendMessageToAll = async (req, res) => {
       return res.status(400).send({ error: "No users found to send messages to" });
     }
 
+    let media;
+    if (messageType !== 'text' && file) {
+      try {
+        console.log(`Loading media from path: ${file.path}`);
+        const fileData = fs.readFileSync(file.path);
+        const fileBase64 = fileData.toString('base64');
+        media = new MessageMedia(file.mimetype, fileBase64, file.filename);
+        console.log('Media loaded successfully');
+      } catch (error) {
+        console.error('Error loading media:', error);
+        return res.status(400).send({ error: "Failed to load media", details: error.message });
+      }
+    }
+
     const results = await Promise.all(companyUsers.map(async (user) => {
       try {
         console.log(`Processing user: ${user.id}, Phone number: ${user.phoneNumber}`);
         const formattedNumber = formatPhoneNumber(user.phoneNumber);
         console.log(`Formatted number: ${formattedNumber}`);
-        
-        console.log(`Sending message to ${formattedNumber}@c.us`);
-        await clients[userId].sendMessage(`${formattedNumber}@c.us`, message);
+
+        let sentMessage;
+        try {
+          switch (messageType) {
+            case 'text':
+              sentMessage = await clients[userId].sendMessage(`${formattedNumber}@c.us`, content);
+              break;
+            case 'image':
+            case 'video':
+            case 'document':
+              console.log(`Sending ${messageType} to ${formattedNumber}`);
+              sentMessage = await clients[userId].sendMessage(`${formattedNumber}@c.us`, media, { caption: content });
+              break;
+            default:
+              throw new Error('Invalid message type');
+          }
+        } catch (error) {
+          console.error('Detailed error:', error);
+          if (file) {
+            console.error('Media file details:', {
+              filename: file.filename,
+              size: file.size,
+              mimetype: file.mimetype
+            });
+          }
+          throw error;
+        }
+
         console.log(`Message sent successfully to ${formattedNumber}`);
-        
+
+        // Store the message in the database
+        await Message.create({
+          companyId: req.user.companyId,
+          companyUserId: user.id,
+          content: content,
+          mediaType: messageType === 'text' ? 'none' : messageType,
+          mediaURL: file ? file.path : null,
+          status: 'sent',
+          timestamp: new Date()
+        });
+
         return { phoneNumber: user.phoneNumber, status: "sent" };
       } catch (error) {
-        console.error(`Error sending message to ${user.phoneNumber}:`, error);
+        console.error(`Error processing user ${user.id}:`, error);
         return { phoneNumber: user.phoneNumber, status: "failed", error: error.message };
       }
     }));
@@ -186,23 +258,25 @@ export const sendMessageToAll = async (req, res) => {
   }
 };
 
-export const sendMessage = async (req, res) => {
-  const userId = req.user.id;
-  const { phoneNumber, message } = req.body;
-
-  if (!clients[userId] || !clients[userId].isReady) {
-    return res.status(400).send({ error: "WhatsApp is not connected" });
-  }
+export const getPreviousChats = async (req, res) => {
+  const { companyUserId } = req.params;
+  const companyId = req.user.companyId;
 
   try {
-    const formattedNumber = formatPhoneNumber(phoneNumber);
-    await clients[userId].sendMessage(`${formattedNumber}@c.us`, message);
-    res.status(200).send({ status: "sent", phoneNumber });
+    const messages = await Message.findAll({
+      where: { companyId, companyUserId },
+      order: [['timestamp', 'DESC']],
+      limit: 100 // Limit to last 100 messages, adjust as needed
+    });
+
+    res.status(200).json(messages);
   } catch (error) {
-    console.error(`Error sending message to ${phoneNumber}:`, error);
-    res.status(500).send({ status: "failed", phoneNumber, error: error.message });
+    console.error('Error fetching previous chats:', error);
+    res.status(500).json({ error: 'Failed to fetch previous chats' });
   }
 };
+
+
 
 export const disconnect = async (req, res) => {
   const userId = req.user.id;
@@ -224,3 +298,18 @@ export const disconnect = async (req, res) => {
     res.status(400).send({ message: "No active WhatsApp connection" });
   }
 };
+
+export const uploadMiddleware = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = './whatsapp';
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir);
+      }
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      cb(null, Date.now() + path.extname(file.originalname));
+    }
+  })
+}).single('file'); 
