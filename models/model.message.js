@@ -23,6 +23,7 @@ const Message = sequelize.define("Message", {
       key: 'id',
     },
   },
+  
   content: {
     type: DataTypes.TEXT,
   },

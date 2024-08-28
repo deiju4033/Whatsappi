@@ -1,4 +1,3 @@
-// controllers/whatsapp.controller.js
 import pkg from "whatsapp-web.js";
 const { Client, MessageMedia } = pkg;
 import qrcode from "qrcode";
