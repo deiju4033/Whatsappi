@@ -11,6 +11,7 @@ whatsapp/*.pdf
 whatsapp/*.docx
 whatsapp/*.xlsx
 whatsapp/*.txt
+*.zip
 *.mov
 *.doc
 
