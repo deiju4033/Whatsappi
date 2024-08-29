@@ -10,20 +10,11 @@ const Message = sequelize.define("Message", {
   companyId: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    references: {
-      model: 'Companies',
-      key: 'id',
-    },
   },
   companyUserId: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    references: {
-      model: 'CompanyUsers',
-      key: 'id',
-    },
   },
-  
   content: {
     type: DataTypes.TEXT,
   },

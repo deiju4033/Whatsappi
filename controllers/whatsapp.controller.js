@@ -221,15 +221,22 @@ export const sendMessageToAll = async (req, res) => {
         console.log(`Message sent successfully to ${formattedNumber}`);
 
         // Store the message in the database
-        await Message.create({
-          companyId: req.user.companyId,
-          companyUserId: user.id,
-          content: content,
-          mediaType: messageType === 'text' ? 'none' : messageType,
-          mediaURL: file ? file.path : null,
-          status: 'sent',
-          timestamp: new Date()
-        });
+        console.log('Attempting to store message in database');
+        try {
+          const createdMessage = await Message.create({
+            companyId: req.user.companyId,
+            companyUserId: user.id,
+            content: content,
+            mediaType: messageType === 'text' ? 'none' : messageType,
+            mediaURL: file ? file.path : null,
+            status: 'sent',
+            timestamp: new Date()
+          });
+          console.log('Message stored successfully:', createdMessage.toJSON());
+        } catch (error) {
+          console.error('Error storing message in database:', error);
+          throw error; // Rethrow the error to be caught in the outer catch block
+        }
 
         return { phoneNumber: user.phoneNumber, status: "sent" };
       } catch (error) {
@@ -261,12 +268,21 @@ export const getPreviousChats = async (req, res) => {
   const { companyUserId } = req.params;
   const companyId = req.user.companyId;
 
+  console.log(`Fetching chats for companyId: ${companyId}, companyUserId: ${companyUserId}`);
+
   try {
     const messages = await Message.findAll({
       where: { companyId, companyUserId },
       order: [['timestamp', 'DESC']],
-      limit: 100 // Limit to last 100 messages, adjust as needed
+      limit: 100 
     });
+
+    console.log(`Found ${messages.length} messages`);
+    if (messages.length > 0) {
+      console.log('First message:', messages[0].toJSON());
+    } else {
+      console.log('No messages found');
+    }
 
     res.status(200).json(messages);
   } catch (error) {
