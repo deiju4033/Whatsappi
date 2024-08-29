@@ -125,7 +125,6 @@ export const checkStatus = async (req, res) => {
         puppeteer: { headless: true },
         session: session.sessionData
       });
-
       clients[userId].on("ready", () => {
         console.log(`WhatsApp client for user ${userId} is ready`);
         clients[userId].isReady = true;
