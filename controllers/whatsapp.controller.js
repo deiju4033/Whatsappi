@@ -44,15 +44,22 @@ const formatPhoneNumber = (number, defaultCountry = 'IN') => {
 export const getQRCode = async (req, res) => {
   try {
     const userId = req.user.id;
-    let qrSent = false;
+    let responseHasBeenSent = false;
     let timeoutId;
 
+    const sendResponse = (statusCode, data) => {
+      if (!responseHasBeenSent) {
+        responseHasBeenSent = true;
+        res.status(statusCode).send(data);
+      }
+    };
+
     if (clients[userId] && clients[userId].isReady) {
-      return res.status(200).send({ message: "WhatsApp is already connected" });
+      return sendResponse(200, { message: "WhatsApp is already connected" });
     }
 
     if (qrCodes[userId]) {
-      return res.status(200).send({ qrImageUrl: qrCodes[userId] });
+      return sendResponse(200, { qrImageUrl: qrCodes[userId] });
     }
 
     if (!clients[userId]) {
@@ -63,18 +70,12 @@ export const getQRCode = async (req, res) => {
 
       clients[userId].on("qr", async (qr) => {
         try {
-          if (!qrSent) {
-            const qrImageUrl = await qrcode.toDataURL(qr);
-            qrCodes[userId] = qrImageUrl;
-            res.status(200).send({ qrImageUrl });
-            qrSent = true;
-          }
+          const qrImageUrl = await qrcode.toDataURL(qr);
+          qrCodes[userId] = qrImageUrl;
+          sendResponse(200, { qrImageUrl });
         } catch (error) {
           console.error("Error generating QR code:", error);
-          if (!qrSent) {
-            res.status(500).send({ error: "Failed to generate QR code" });
-            qrSent = true;
-          }
+          sendResponse(500, { error: "Failed to generate QR code" });
         }
       });
 
@@ -93,17 +94,12 @@ export const getQRCode = async (req, res) => {
 
       clients[userId].initialize().catch((err) => {
         console.error("Error initializing WhatsApp client:", err);
-        if (!qrSent) {
-          res.status(500).send({ error: "Failed to initialize WhatsApp client" });
-          qrSent = true;
-        }
+        sendResponse(500, { error: "Failed to initialize WhatsApp client" });
       });
     }
 
     timeoutId = setTimeout(() => {
-      if (!qrSent) {
-        res.status(408).send({ error: "Timeout while waiting for QR code" });
-      }
+      sendResponse(408, { error: "Timeout while waiting for QR code" });
     }, 30000);
 
     res.on('finish', () => {
@@ -126,10 +122,14 @@ export const checkStatus = async (req, res) => {
     if (clients[userId] && clients[userId].isReady) {
       console.log('Client is ready');
       return res.status(200).send({ status: "connected" });
-    } else if (qrCodes[userId]) {
+    } 
+    
+    if (qrCodes[userId]) {
       console.log('QR code is ready');
       return res.status(200).send({ status: "qr_ready", qrImageUrl: qrCodes[userId] });
-    } else if (session && session.isActive) {
+    } 
+    
+    if (session && session.isActive) {
       console.log('Session exists');
 
       if (!clients[userId]) {
@@ -159,10 +159,11 @@ export const checkStatus = async (req, res) => {
       }
 
       return res.status(200).send({ status: "session_exists" });
-    } else {
-      console.log('Disconnected, generating new QR code');
-      return res.status(200).send({ status: "disconnected" });
     }
+
+    console.log('Disconnected, generating new QR code');
+    return res.status(200).send({ status: "disconnected" });
+
   } catch (error) {
     console.error("Error in checkStatus:", error);
     res.status(500).send({ error: "Internal server error", details: error.message });
