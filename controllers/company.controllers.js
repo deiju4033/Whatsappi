@@ -47,3 +47,18 @@ export const updateCompany = async (req, res) => {
     res.status(400).send(error);
   }
 };
+
+
+export const deleteCompany = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const company = await Company.findByPk(id);
+    if (!company) {
+      return res.status(404).send({ error: "Company not found" });
+    }
+    await company.destroy();
+    res.send({ message: "Company deleted successfully" });
+  } catch (error) {
+    res.status(500).send(error);
+  }
+};

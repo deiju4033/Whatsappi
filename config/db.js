@@ -3,13 +3,6 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Log environment variables
-console.log('DB_NAME:', process.env.DB_NAME);
-console.log('DB_USER:', process.env.DB_USER);
-console.log('DB_PASS:', process.env.DB_PASS);
-console.log('DB_HOST:', process.env.DB_HOST);
-console.log('DB_DIALECT:', process.env.DB_DIALECT);
-
 const sequelize = new Sequelize(
   process.env.DB_NAME,
   process.env.DB_USER,
@@ -17,6 +10,13 @@ const sequelize = new Sequelize(
   {
     host: process.env.DB_HOST,
     dialect: process.env.DB_DIALECT,
+    port: 4000, // Port configuration
+    dialectOptions: {
+      ssl: {
+        require: true, // This will ensure that SSL is used
+        rejectUnauthorized: false 
+      },
+    },
   }
 );
 

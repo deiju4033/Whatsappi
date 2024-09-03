@@ -1,5 +1,6 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
+import CompanyUser from "./model.companyUser.js";  // Make sure to import CompanyUser model
 
 const Message = sequelize.define("Message", {
   id: {
@@ -34,5 +35,8 @@ const Message = sequelize.define("Message", {
     defaultValue: 'sent',
   },
 });
+
+// Define the association
+Message.belongsTo(CompanyUser, { foreignKey: 'companyUserId' });
 
 export default Message;

@@ -15,7 +15,7 @@ router.get("/protected", authenticateUser, (req, res) => {
   res.send({
     message: "This is a protected route",
     user: req.user,
-    link: `https://wa.amiyon.com/whatsapp?username=${req.user.username}&password=${req.headers["x-password"]}&token=${req.headers["x-token"]}`,
+    link: `https://wa.amiyon.com/home?username=${req.user.username}&password=${req.headers["x-password"]}&token=${req.headers["x-token"]}`,
   });
 });
 

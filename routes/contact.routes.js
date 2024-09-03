@@ -1,12 +1,16 @@
-import express from "express";
-import { addContact, getContacts, updateContact, deleteContact } from "../controllers/contact.controllers.js";
-import { authenticateUser } from "../middleware/auth.middleware.js";
+import express from 'express';
+import { addContact, deleteContact, updateContact, getContacts, uploadContacts } from '../controllers/contact.controllers.js';
+import { authenticateUser } from '../middleware/auth.middleware.js';
+import multer from 'multer';
 
 const router = express.Router();
+const upload = multer({ dest: 'uploads/' });
 
-router.post("/addContact",addContact);
-router.get("/getContacts/:userId",getContacts);
-router.put("/update/:id", updateContact);
-router.delete("/:id", authenticateUser, deleteContact);
+router.post('/createContact', authenticateUser, addContact);
+router.delete('/deleteContact/:id', authenticateUser, deleteContact);
+router.put('/updateContact/:id', authenticateUser, updateContact);
+router.get('/getContact/:companyId', authenticateUser, getContacts);
+router.post('/uploadContacts', authenticateUser, upload.single('file'), uploadContacts);
+
 
 export default router;

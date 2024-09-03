@@ -113,21 +113,27 @@ export const checkStatus = async (req, res) => {
 
   if (clients[userId] && clients[userId].isReady) {
     console.log('Client is ready');
-    res.status(200).send({ status: "connected" });
+    return res.status(200).send({ status: "connected" });
   } else if (qrCodes[userId]) {
     console.log('QR code is ready');
-    res.status(200).send({ status: "qr_ready", qrImageUrl: qrCodes[userId] });
+    return res.status(200).send({ status: "qr_ready", qrImageUrl: qrCodes[userId] });
   } else if (session && session.isActive) {
     console.log('Session exists');
+
     if (!clients[userId]) {
       console.log('Initializing client with existing session');
       clients[userId] = new Client({
         puppeteer: { headless: true },
         session: session.sessionData
       });
-      clients[userId].on("ready", () => {
-        console.log(`WhatsApp client for user ${userId} is ready`);
-        clients[userId].isReady = true;
+
+      // Ensure the client is fully initialized before proceeding
+      const clientReadyPromise = new Promise((resolve) => {
+        clients[userId].on("ready", () => {
+          console.log(`WhatsApp client for user ${userId} is ready`);
+          clients[userId].isReady = true;
+          resolve(); // Resolves the promise once the client is ready
+        });
       });
 
       clients[userId].on("auth_failure", async () => {
@@ -138,13 +144,17 @@ export const checkStatus = async (req, res) => {
 
       await clients[userId].initialize();
       console.log(`Client initialized for user ${userId}`);
+      await clientReadyPromise; 
     }
-    res.status(200).send({ status: "session_exists" });
+
+    return res.status(200).send({ status: "session_exists" });
   } else {
-    console.log('Disconnected');
-    res.status(200).send({ status: "disconnected" });
+    console.log('Disconnected, generating new QR code');
+    // Handle generating a new QR code
+    return res.status(200).send({ status: "disconnected" });
   }
 };
+
 
 export const sendMessageToAll = async (req, res) => {
   const userId = req.user.id;
@@ -199,8 +209,9 @@ export const sendMessageToAll = async (req, res) => {
             case 'image':
             case 'video':
             case 'document':
+            case 'audio':
               console.log(`Sending ${messageType} to ${formattedNumber}`);
-              sentMessage = await clients[userId].sendMessage(`${formattedNumber}@c.us`, media, { caption: content });
+              sentMessage = await clients[userId].sendMessage(`${formattedNumber}@c.us`, media, { sendAudioAsVoice: messageType === 'audio' });
               break;
             default:
               throw new Error('Invalid message type');
@@ -249,7 +260,7 @@ export const sendMessageToAll = async (req, res) => {
     const successCount = results.filter(r => r.status === "sent").length;
     const failureCount = results.filter(r => r.status === "failed").length;
 
-    res.status(200).send({ 
+    res.status(200).send({
       results,
       summary: {
         total: results.length,
@@ -263,33 +274,52 @@ export const sendMessageToAll = async (req, res) => {
   }
 };
 
-export const getPreviousChats = async (req, res) => {
-  const { companyUserId } = req.params;
-  const companyId = req.user.companyId;
-
-  console.log(`Fetching chats for companyId: ${companyId}, companyUserId: ${companyUserId}`);
-
+export const getPreviousMessages = async (req, res) => {
+  const { companyId } = req.user;
   try {
+    console.log(`Fetching messages for company ID: ${companyId}`);
+
     const messages = await Message.findAll({
-      where: { companyId, companyUserId },
-      order: [['timestamp', 'DESC']],
-      limit: 100 
+      where: { companyId: companyId },
+      include: [{
+        model: CompanyUser,
+        attributes: ['id', 'name', 'phoneNumber']
+      }],
+      order: [['timestamp', 'ASC']],
+      limit: 100
     });
 
     console.log(`Found ${messages.length} messages`);
-    if (messages.length > 0) {
-      console.log('First message:', messages[0].toJSON());
-    } else {
-      console.log('No messages found');
-    }
 
-    res.status(200).json(messages);
+    if (messages.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+    const transformedMessages = messages.map(message => ({
+      id: message.id,
+      content: message.content,
+      mediaType: message.mediaType,
+      mediaURL: message.mediaURL,
+      status: message.status,
+      timestamp: message.timestamp,
+      sender: message.CompanyUser ? {
+        id: message.CompanyUser.id,
+        name: message.CompanyUser.name,
+        phoneNumber: message.CompanyUser.phoneNumber
+      } : null
+    }));
+
+    console.log(`Transformed ${transformedMessages.length} messages`);
+
+    res.status(200).json({ success: true, data: transformedMessages });
   } catch (error) {
-    console.error('Error fetching previous chats:', error);
-    res.status(500).json({ error: 'Failed to fetch previous chats' });
+    console.error('Error fetching previous messages:', error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch previous messages",
+      details: error.message
+    });
   }
 };
-
 
 
 export const disconnect = async (req, res) => {
@@ -327,3 +357,5 @@ export const uploadMiddleware = multer({
     }
   })
 }).single('file'); 
+
+
