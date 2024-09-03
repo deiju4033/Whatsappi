@@ -42,135 +42,148 @@ const formatPhoneNumber = (number, defaultCountry = 'IN') => {
 };
 
 export const getQRCode = async (req, res) => {
-  const userId = req.user.id;
-  let qrSent = false;
+  try {
+    const userId = req.user.id;
+    let qrSent = false;
+    let timeoutId;
 
-  if (clients[userId] && clients[userId].isReady) {
-    return res.status(200).send({ message: "WhatsApp is already connected" });
-  }
-
-  if (qrCodes[userId]) {
-    return res.status(200).send({ qrImageUrl: qrCodes[userId] });
-  }
-
-  if (!clients[userId]) {
-    clients[userId] = new Client({
-      puppeteer: { headless: true },
-      session: null
-    });
-
-    clients[userId].on("qr", async (qr) => {
-      try {
-        if (!qrSent) {
-          const qrImageUrl = await qrcode.toDataURL(qr);
-          qrCodes[userId] = qrImageUrl;
-          res.status(200).send({ qrImageUrl });
-          qrSent = true;
-        }
-      } catch (error) {
-        console.error("Error generating QR code:", error);
-        if (!qrSent) {
-          res.status(500).send({ error: "Failed to generate QR code" });
-          qrSent = true;
-        }
-      }
-    });
-
-    clients[userId].on("ready", async () => {
-      clients[userId].isReady = true;
-      const session = await clients[userId].pupPage.evaluate(() => {
-        return localStorage.getItem('WABrowserId');
-      });
-      await WhatsAppSession.upsert({
-        userId,
-        sessionData: session,
-        isActive: true
-      });
-      delete qrCodes[userId];
-    });
-
-    clients[userId].initialize().catch((err) => {
-      console.error("Error initializing WhatsApp client:", err);
-      if (!qrSent) {
-        res.status(500).send({ error: "Failed to initialize WhatsApp client" });
-        qrSent = true;
-      }
-    });
-  }
-
-  setTimeout(() => {
-    if (!qrSent) {
-      res.status(408).send({ error: "Timeout while waiting for QR code" });
+    if (clients[userId] && clients[userId].isReady) {
+      return res.status(200).send({ message: "WhatsApp is already connected" });
     }
-  }, 30000);
+
+    if (qrCodes[userId]) {
+      return res.status(200).send({ qrImageUrl: qrCodes[userId] });
+    }
+
+    if (!clients[userId]) {
+      clients[userId] = new Client({
+        puppeteer: { headless: true },
+        session: null
+      });
+
+      clients[userId].on("qr", async (qr) => {
+        try {
+          if (!qrSent) {
+            const qrImageUrl = await qrcode.toDataURL(qr);
+            qrCodes[userId] = qrImageUrl;
+            res.status(200).send({ qrImageUrl });
+            qrSent = true;
+          }
+        } catch (error) {
+          console.error("Error generating QR code:", error);
+          if (!qrSent) {
+            res.status(500).send({ error: "Failed to generate QR code" });
+            qrSent = true;
+          }
+        }
+      });
+
+      clients[userId].on("ready", async () => {
+        clients[userId].isReady = true;
+        const session = await clients[userId].pupPage.evaluate(() => {
+          return localStorage.getItem('WABrowserId');
+        });
+        await WhatsAppSession.upsert({
+          userId,
+          sessionData: session,
+          isActive: true
+        });
+        delete qrCodes[userId];
+      });
+
+      clients[userId].initialize().catch((err) => {
+        console.error("Error initializing WhatsApp client:", err);
+        if (!qrSent) {
+          res.status(500).send({ error: "Failed to initialize WhatsApp client" });
+          qrSent = true;
+        }
+      });
+    }
+
+    timeoutId = setTimeout(() => {
+      if (!qrSent) {
+        res.status(408).send({ error: "Timeout while waiting for QR code" });
+      }
+    }, 30000);
+
+    res.on('finish', () => {
+      clearTimeout(timeoutId);
+    });
+
+  } catch (error) {
+    console.error("Error in getQRCode:", error);
+    res.status(500).send({ error: "Internal server error", details: error.message });
+  }
 };
 
 export const checkStatus = async (req, res) => {
-  const userId = req.user.id;
-  const session = await WhatsAppSession.findOne({ where: { userId } });
+  try {
+    const userId = req.user.id;
+    const session = await WhatsAppSession.findOne({ where: { userId } });
 
-  console.log('Checking WhatsApp status for user:', userId);
+    console.log('Checking WhatsApp status for user:', userId);
 
-  if (clients[userId] && clients[userId].isReady) {
-    console.log('Client is ready');
-    return res.status(200).send({ status: "connected" });
-  } else if (qrCodes[userId]) {
-    console.log('QR code is ready');
-    return res.status(200).send({ status: "qr_ready", qrImageUrl: qrCodes[userId] });
-  } else if (session && session.isActive) {
-    console.log('Session exists');
+    if (clients[userId] && clients[userId].isReady) {
+      console.log('Client is ready');
+      return res.status(200).send({ status: "connected" });
+    } else if (qrCodes[userId]) {
+      console.log('QR code is ready');
+      return res.status(200).send({ status: "qr_ready", qrImageUrl: qrCodes[userId] });
+    } else if (session && session.isActive) {
+      console.log('Session exists');
 
-    if (!clients[userId]) {
-      console.log('Initializing client with existing session');
-      clients[userId] = new Client({
-        puppeteer: { headless: true },
-        session: session.sessionData
-      });
-
-      // Ensure the client is fully initialized before proceeding
-      const clientReadyPromise = new Promise((resolve) => {
-        clients[userId].on("ready", () => {
-          console.log(`WhatsApp client for user ${userId} is ready`);
-          clients[userId].isReady = true;
-          resolve(); // Resolves the promise once the client is ready
+      if (!clients[userId]) {
+        console.log('Initializing client with existing session');
+        clients[userId] = new Client({
+          puppeteer: { headless: true },
+          session: session.sessionData
         });
-      });
 
-      clients[userId].on("auth_failure", async () => {
-        console.log(`Authentication failed for user ${userId}`);
-        await WhatsAppSession.update({ isActive: false }, { where: { userId } });
-        delete clients[userId];
-      });
+        const clientReadyPromise = new Promise((resolve) => {
+          clients[userId].on("ready", () => {
+            console.log(`WhatsApp client for user ${userId} is ready`);
+            clients[userId].isReady = true;
+            resolve();
+          });
+        });
 
-      await clients[userId].initialize();
-      console.log(`Client initialized for user ${userId}`);
-      await clientReadyPromise; 
+        clients[userId].on("auth_failure", async () => {
+          console.log(`Authentication failed for user ${userId}`);
+          await WhatsAppSession.update({ isActive: false }, { where: { userId } });
+          delete clients[userId];
+        });
+
+        await clients[userId].initialize();
+        console.log(`Client initialized for user ${userId}`);
+        await clientReadyPromise; 
+      }
+
+      return res.status(200).send({ status: "session_exists" });
+    } else {
+      console.log('Disconnected, generating new QR code');
+      return res.status(200).send({ status: "disconnected" });
     }
-
-    return res.status(200).send({ status: "session_exists" });
-  } else {
-    console.log('Disconnected, generating new QR code');
-    // Handle generating a new QR code
-    return res.status(200).send({ status: "disconnected" });
+  } catch (error) {
+    console.error("Error in checkStatus:", error);
+    res.status(500).send({ error: "Internal server error", details: error.message });
   }
 };
 
-
 export const sendMessageToAll = async (req, res) => {
-  const userId = req.user.id;
-  const { messageType, content } = req.body;
-  const file = req.file;
-
-  console.log(`Attempting to send ${messageType} message to all users for user ${userId}`);
-  console.log('Message content:', content);
-  console.log('File:', file);
-
-  if (!clients[userId] || !clients[userId].isReady) {
-    console.log(`WhatsApp client for user ${userId} is not ready`);
-    return res.status(400).send({ error: "WhatsApp is not initialized or not ready" });
-  }
-
   try {
+    const userId = req.user.id;
+    const { messageType, content } = req.body;
+    const file = req.file;
+
+    console.log(`Attempting to send ${messageType} message to all users for user ${userId}`);
+    console.log('Message content:', content);
+    console.log('File:', file);
+
+    if (!clients[userId] || !clients[userId].isReady) {
+      console.log(`WhatsApp client for user ${userId} is not ready`);
+      return res.status(400).send({ error: "WhatsApp is not initialized or not ready" });
+    }
+
     console.log(`Fetching company users for company ID: ${req.user.companyId}`);
     const companyUsers = await CompanyUser.findAll({ where: { companyId: req.user.companyId } });
     console.log(`Found ${companyUsers.length} company users`);
@@ -230,7 +243,6 @@ export const sendMessageToAll = async (req, res) => {
 
         console.log(`Message sent successfully to ${formattedNumber}`);
 
-        // Store the message in the database
         console.log('Attempting to store message in database');
         try {
           const createdMessage = await Message.create({
@@ -245,7 +257,7 @@ export const sendMessageToAll = async (req, res) => {
           console.log('Message stored successfully:', createdMessage.toJSON());
         } catch (error) {
           console.error('Error storing message in database:', error);
-          throw error; // Rethrow the error to be caught in the outer catch block
+          throw error;
         }
 
         return { phoneNumber: user.phoneNumber, status: "sent" };
@@ -275,8 +287,8 @@ export const sendMessageToAll = async (req, res) => {
 };
 
 export const getPreviousMessages = async (req, res) => {
-  const { companyId } = req.user;
   try {
+    const { companyId } = req.user;
     console.log(`Fetching messages for company ID: ${companyId}`);
 
     const messages = await Message.findAll({
@@ -294,6 +306,7 @@ export const getPreviousMessages = async (req, res) => {
     if (messages.length === 0) {
       return res.status(200).json({ success: true, data: [] });
     }
+
     const transformedMessages = messages.map(message => ({
       id: message.id,
       content: message.content,
@@ -321,12 +334,11 @@ export const getPreviousMessages = async (req, res) => {
   }
 };
 
-
 export const disconnect = async (req, res) => {
-  const userId = req.user.id;
+  try {
+    const userId = req.user.id;
 
-  if (clients[userId]) {
-    try {
+    if (clients[userId]) {
       await clients[userId].destroy();
       delete clients[userId];
       delete qrCodes[userId];
@@ -334,12 +346,12 @@ export const disconnect = async (req, res) => {
       await WhatsAppSession.update({ isActive: false }, { where: { userId } });
 
       res.status(200).send({ message: "WhatsApp disconnected successfully" });
-    } catch (error) {
-      console.error("Error disconnecting WhatsApp:", error);
-      res.status(500).send({ error: "Failed to disconnect WhatsApp" });
+    } else {
+      res.status(400).send({ message: "No active WhatsApp connection" });
     }
-  } else {
-    res.status(400).send({ message: "No active WhatsApp connection" });
+  } catch (error) {
+    console.error("Error disconnecting WhatsApp:", error);
+    res.status(500).send({ error: "Failed to disconnect WhatsApp", details: error.message });
   }
 };
 
@@ -356,6 +368,4 @@ export const uploadMiddleware = multer({
       cb(null, Date.now() + path.extname(file.originalname));
     }
   })
-}).single('file'); 
-
-
+}).single('file');
